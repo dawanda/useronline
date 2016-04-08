@@ -1,0 +1,11 @@
+{
+	"ImportPath": "github.com/dawanda/useronline",
+	"GoVersion": "go1.6",
+	"Deps": [
+		{
+			"ImportPath": "github.com/ogier/pflag",
+			"Comment": "v0.0.1-7-g45c278a",
+			"Rev": "45c278ab3607870051a2ea9040bb85fcb8557481"
+		}
+	]
+}
