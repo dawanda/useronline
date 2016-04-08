@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -12,6 +13,7 @@ type Tracker struct {
 	Debug         bool
 	buckets       map[string]*time.Timer
 	bucketMutex   sync.Mutex
+	sessionCount  int64
 	currentBucket int
 	statsdClient  *UdpClient
 	statsdPrefix  string
@@ -72,8 +74,10 @@ func (tracker *Tracker) Touch(sessionID string) {
 		t := time.NewTimer(tracker.SessionTTL)
 		tracker.buckets[sessionID] = t
 		start := time.Now()
+		atomic.AddInt64(&tracker.sessionCount, 1)
 		go func() {
 			<-t.C
+			atomic.AddInt64(&tracker.sessionCount, -1)
 			tracker.Debugf("Session %v timed out after %v\n", sessionID, time.Now().Sub(start))
 			tracker.bucketMutex.Lock()
 			delete(tracker.buckets, sessionID)
@@ -85,10 +89,8 @@ func (tracker *Tracker) Touch(sessionID string) {
 	tracker.bucketMutex.Unlock()
 }
 
-func (tracker *Tracker) GetCount() int {
-	tracker.bucketMutex.Lock()
-	res := len(tracker.buckets)
+func (tracker *Tracker) GetCount() int64 {
+	res := atomic.LoadInt64(&tracker.sessionCount)
 	tracker.Debugf("GetTrack %v count:%v\n", tracker.Name, res)
-	tracker.bucketMutex.Unlock()
 	return res
 }
