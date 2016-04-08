@@ -38,6 +38,8 @@ func (service *Service) httpTrack(w http.ResponseWriter, r *http.Request) {
 		})
 		service.NewSessions.Touch(sid)
 	} else {
+		cookie.Expires = time.Now().Add(service.CookieTTL)
+		http.SetCookie(w, cookie)
 		service.RecurringSessions.Touch(cookie.Value)
 	}
 
