@@ -15,8 +15,6 @@ type Tracker struct {
 	sessions     map[string]*time.Timer
 	sessionMutex sync.Mutex
 	sessionCount int64
-	statsdClient *UdpClient
-	statsdTicker *time.Ticker
 }
 
 func NewTracker(name string, sessionTTL time.Duration, statsdAddr string, statsdPrefix string, debug bool) (*Tracker, error) {
@@ -27,16 +25,19 @@ func NewTracker(name string, sessionTTL time.Duration, statsdAddr string, statsd
 	}
 
 	if len(statsdAddr) > 0 {
-		udpClient, err := NewUdpClient(statsdAddr)
+		statsdClient, err := NewUdpClient(statsdAddr)
 		if err != nil {
 			return nil, err
 		}
-		tracker.statsdClient = udpClient
 
-		tracker.statsdTicker = time.NewTicker(time.Minute * 1)
+		statsdTicker := time.NewTicker(time.Minute * 1)
 		go func() {
-			for range tracker.statsdTicker.C {
-				tracker.FlushReport()
+			for range statsdTicker.C {
+				count := tracker.GetCount()
+				log.Printf("Tracking summary for %v sessions: %v\n", tracker.Name, count)
+				if statsdClient != nil {
+					statsdClient.Sendf("%v.%v:%v|c", tracker.StatsdPrefix, tracker.Name, count)
+				}
 			}
 		}()
 	}
@@ -44,14 +45,6 @@ func NewTracker(name string, sessionTTL time.Duration, statsdAddr string, statsd
 	tracker.sessions = make(map[string]*time.Timer)
 
 	return tracker, nil
-}
-
-func (tracker *Tracker) FlushReport() {
-	count := tracker.GetCount()
-	log.Printf("Tracking summary for %v sessions: %v\n", tracker.Name, count)
-	if tracker.statsdClient != nil {
-		tracker.statsdClient.Sendf("%v.%v:%v|c", tracker.StatsdPrefix, tracker.Name, count)
-	}
 }
 
 func (tracker *Tracker) Debugf(msg string, args ...interface{}) {
