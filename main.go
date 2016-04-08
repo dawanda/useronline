@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"time"
 
@@ -105,17 +106,13 @@ func main() {
 	debug := flag.Bool("debug", false, "Enable debugging messages")
 	flag.Parse()
 
-	tracker, err := NewTracker("recurring", service.SessionTTL, *statsdAddr, *statsdPrefix, *debug)
+	theStatsdAddr, err := net.ResolveUDPAddr("udp", *statsdAddr)
 	if err != nil {
-		log.Fatalf("Failed to create tracker. %v\n", err)
+		log.Fatalf("Failed to resolve address %v. %v\n", *statsdAddr, err)
 	}
-	service.RecurringSessions = tracker
 
-	tracker, err = NewTracker("new", service.SessionTTL, *statsdAddr, *statsdPrefix, *debug)
-	if err != nil {
-		log.Fatalf("Failed to create tracker. %v\n", err)
-	}
-	service.NewSessions = tracker
+	service.RecurringSessions = NewTracker("recurring", service.SessionTTL, theStatsdAddr, *statsdPrefix, *debug)
+	service.NewSessions = NewTracker("new", service.SessionTTL, theStatsdAddr, *statsdPrefix, *debug)
 
 	http.HandleFunc("/uo/trck.gif", service.httpTrack)
 	http.HandleFunc("/ping", service.httpPing)
