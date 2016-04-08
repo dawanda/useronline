@@ -40,7 +40,10 @@ func (service *Service) httpTrack(w http.ResponseWriter, r *http.Request) {
 	} else {
 		cookie.Expires = time.Now().Add(service.CookieTTL)
 		http.SetCookie(w, cookie)
-		service.RecurringSessions.Touch(cookie.Value)
+
+		if !service.NewSessions.Contains(cookie.Value) {
+			service.RecurringSessions.Touch(cookie.Value)
+		}
 	}
 
 	service.writeEmptyGif(w, r)

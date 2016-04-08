@@ -64,6 +64,13 @@ func (tracker *Tracker) Debugf(msg string, args ...interface{}) {
 	}
 }
 
+func (tracker *Tracker) Contains(sessionID string) bool {
+	tracker.bucketMutex.Lock()
+	_, ok := tracker.buckets[sessionID]
+	tracker.bucketMutex.Unlock()
+	return ok
+}
+
 func (tracker *Tracker) Touch(sessionID string) {
 	tracker.bucketMutex.Lock()
 
