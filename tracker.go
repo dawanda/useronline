@@ -46,10 +46,6 @@ func NewTracker(name string, sessionTTL time.Duration, statsdAddr string, statsd
 	return tracker, nil
 }
 
-func (tracker *Tracker) Run() {
-	// TODO?
-}
-
 func (tracker *Tracker) flushReport() {
 	count := tracker.GetCount()
 	log.Printf("Tracking summary for %v sessions: %v\n", tracker.Name, count)
