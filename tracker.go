@@ -1,33 +1,16 @@
 package main
 
 import (
-	"fmt"
 	"log"
 	"sync"
 	"time"
 )
 
-type TrackKind int
-
-func (k TrackKind) String() string {
-	switch k {
-	case KindNewUsers:
-		return "new"
-	case KindRecurring:
-		return "recurring"
-	default:
-		return fmt.Sprintf("%v", int(k))
-	}
-}
-
-const (
-	KindNewUsers TrackKind = iota
-	KindRecurring
-)
-
 type Tracker struct {
+	Name          string
+	SessionTTL    time.Duration
 	Debug         bool
-	buckets       []map[int]map[string]bool // [kind][bucketID][sessionID]
+	buckets       map[string]*time.Timer
 	bucketMutex   sync.Mutex
 	currentBucket int
 	statsdClient  *UdpClient
@@ -35,8 +18,8 @@ type Tracker struct {
 	statsdTicker  *time.Ticker
 }
 
-func NewTracker(statsdAddr string, statsdPrefix string, debug bool) (*Tracker, error) {
-	tracker := &Tracker{Debug: debug}
+func NewTracker(name string, sessionTTL time.Duration, statsdAddr string, statsdPrefix string, debug bool) (*Tracker, error) {
+	tracker := &Tracker{Name: name, SessionTTL: sessionTTL, Debug: debug}
 
 	if len(statsdAddr) > 0 {
 		udpClient, err := NewUdpClient(statsdAddr)
@@ -50,70 +33,59 @@ func NewTracker(statsdAddr string, statsdPrefix string, debug bool) (*Tracker, e
 			for range tracker.statsdTicker.C {
 				// getting the current bucket ID triggers an implicit flush, if needed
 				tracker.bucketMutex.Lock()
-				tracker.getBucketID()
+				tracker.flushReport()
 				tracker.bucketMutex.Unlock()
 			}
 		}()
 	}
 
-	tracker.buckets = make([]map[int]map[string]bool, 2)
-
-	for kind := 0; kind < 2; kind++ {
-		tracker.buckets[kind] = make(map[int]map[string]bool)
-	}
-
-	for minute := 0; minute < 60; minute++ {
-		tracker.resetBucket(minute)
-	}
+	tracker.buckets = make(map[string]*time.Timer)
 
 	return tracker, nil
 }
 
-func (tracker *Tracker) resetBucket(bucketID int) {
-	for kind := 0; kind < 2; kind++ {
-		for minute := 0; minute < 60; minute++ {
-			tracker.buckets[kind][minute] = make(map[string]bool)
-		}
+func (tracker *Tracker) Run() {
+	// TODO?
+}
+
+func (tracker *Tracker) flushReport() {
+	count := tracker.GetCount()
+	log.Printf("Tracking summary for %v sessions: %v\n", tracker.Name, count)
+	if tracker.statsdClient != nil {
+		tracker.statsdClient.Sendf("%v.%v:%v|c", tracker.statsdPrefix, tracker.Name, count)
 	}
 }
 
-func (tracker *Tracker) flushReport(bucketID int) {
-	var kindStr = []string{"new", "recurring"}
-	for kind := 0; kind < 2; kind++ {
-		count := len(tracker.buckets[kind][bucketID])
-		log.Printf("Tracking summary for %v sessions: %v\n", TrackKind(kind), count)
-		if tracker.statsdClient != nil {
-			tracker.statsdClient.Sendf("%v.%v:%v|g", tracker.statsdPrefix, kindStr[kind], count)
-		}
-	}
-}
-
-func (tracker *Tracker) getBucketID() int {
-	bucketID := time.Now().Minute()
-	if bucketID != tracker.currentBucket {
-		tracker.flushReport(tracker.currentBucket)
-		tracker.resetBucket(bucketID)
-		tracker.currentBucket = bucketID
-	}
-	return bucketID
-}
-
-func (tracker *Tracker) Touch(kind TrackKind, sessionID string) {
+func (tracker *Tracker) Touch(sessionID string) {
 	tracker.bucketMutex.Lock()
-	bid := tracker.getBucketID()
-	tracker.buckets[kind][bid][sessionID] = true
+
+	t, ok := tracker.buckets[sessionID]
+	if ok {
+		t.Reset(tracker.SessionTTL)
+	} else {
+		t := time.NewTimer(tracker.SessionTTL)
+		tracker.buckets[sessionID] = t
+		start := time.Now()
+		go func() {
+			<-t.C
+			log.Printf("Session %v timed out after %v\n", sessionID, time.Now().Sub(start))
+			tracker.bucketMutex.Lock()
+			delete(tracker.buckets, sessionID)
+			tracker.bucketMutex.Unlock()
+		}()
+	}
+
 	if tracker.Debug {
-		log.Printf("Track %v bucket:%v sid:%v count:%v\n", kind, bid, sessionID, len(tracker.buckets[kind][bid]))
+		log.Printf("Track %v sid:%v count:%v\n", tracker.Name, sessionID, len(tracker.buckets))
 	}
 	tracker.bucketMutex.Unlock()
 }
 
-func (tracker *Tracker) GetCount(kind TrackKind) int {
+func (tracker *Tracker) GetCount() int {
 	tracker.bucketMutex.Lock()
-	bid := tracker.getBucketID()
-	res := len(tracker.buckets[kind][bid])
+	res := len(tracker.buckets)
 	if tracker.Debug {
-		log.Printf("GetTrack %v bucket:%v count:%v\n", kind, bid, res)
+		log.Printf("GetTrack %v count:%v\n", tracker.Name, res)
 	}
 	tracker.bucketMutex.Unlock()
 	return res
