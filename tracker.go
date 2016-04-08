@@ -56,6 +56,12 @@ func (tracker *Tracker) flushReport() {
 	}
 }
 
+func (tracker *Tracker) Debugf(msg string, args ...interface{}) {
+	if tracker.Debug {
+		log.Printf(msg, args...)
+	}
+}
+
 func (tracker *Tracker) Touch(sessionID string) {
 	tracker.bucketMutex.Lock()
 
@@ -68,25 +74,21 @@ func (tracker *Tracker) Touch(sessionID string) {
 		start := time.Now()
 		go func() {
 			<-t.C
-			log.Printf("Session %v timed out after %v\n", sessionID, time.Now().Sub(start))
+			tracker.Debugf("Session %v timed out after %v\n", sessionID, time.Now().Sub(start))
 			tracker.bucketMutex.Lock()
 			delete(tracker.buckets, sessionID)
 			tracker.bucketMutex.Unlock()
 		}()
 	}
 
-	if tracker.Debug {
-		log.Printf("Track %v sid:%v count:%v\n", tracker.Name, sessionID, len(tracker.buckets))
-	}
+	tracker.Debugf("Track %v sid:%v count:%v\n", tracker.Name, sessionID, len(tracker.buckets))
 	tracker.bucketMutex.Unlock()
 }
 
 func (tracker *Tracker) GetCount() int {
 	tracker.bucketMutex.Lock()
 	res := len(tracker.buckets)
-	if tracker.Debug {
-		log.Printf("GetTrack %v count:%v\n", tracker.Name, res)
-	}
+	tracker.Debugf("GetTrack %v count:%v\n", tracker.Name, res)
 	tracker.bucketMutex.Unlock()
 	return res
 }
