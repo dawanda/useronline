@@ -10,18 +10,22 @@ import (
 type Tracker struct {
 	Name          string
 	SessionTTL    time.Duration
+	StatsdPrefix  string
 	Debug         bool
 	buckets       map[string]*time.Timer
 	bucketMutex   sync.Mutex
 	sessionCount  int64
 	currentBucket int
 	statsdClient  *UdpClient
-	statsdPrefix  string
 	statsdTicker  *time.Ticker
 }
 
 func NewTracker(name string, sessionTTL time.Duration, statsdAddr string, statsdPrefix string, debug bool) (*Tracker, error) {
-	tracker := &Tracker{Name: name, SessionTTL: sessionTTL, Debug: debug}
+	tracker := &Tracker{Name: name,
+		SessionTTL:   sessionTTL,
+		StatsdPrefix: statsdPrefix,
+		Debug:        debug,
+	}
 
 	if len(statsdAddr) > 0 {
 		udpClient, err := NewUdpClient(statsdAddr)
@@ -50,7 +54,7 @@ func (tracker *Tracker) flushReport() {
 	count := tracker.GetCount()
 	log.Printf("Tracking summary for %v sessions: %v\n", tracker.Name, count)
 	if tracker.statsdClient != nil {
-		tracker.statsdClient.Sendf("%v.%v:%v|c", tracker.statsdPrefix, tracker.Name, count)
+		tracker.statsdClient.Sendf("%v.%v:%v|c", tracker.StatsdPrefix, tracker.Name, count)
 	}
 }
 
