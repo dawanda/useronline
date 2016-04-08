@@ -8,16 +8,15 @@ import (
 )
 
 type Tracker struct {
-	Name          string
-	SessionTTL    time.Duration
-	StatsdPrefix  string
-	Debug         bool
-	buckets       map[string]*time.Timer
-	bucketMutex   sync.Mutex
-	sessionCount  int64
-	currentBucket int
-	statsdClient  *UdpClient
-	statsdTicker  *time.Ticker
+	Name         string
+	SessionTTL   time.Duration
+	StatsdPrefix string
+	Debug        bool
+	sessions     map[string]*time.Timer
+	sessionMutex sync.Mutex
+	sessionCount int64
+	statsdClient *UdpClient
+	statsdTicker *time.Ticker
 }
 
 func NewTracker(name string, sessionTTL time.Duration, statsdAddr string, statsdPrefix string, debug bool) (*Tracker, error) {
@@ -37,20 +36,17 @@ func NewTracker(name string, sessionTTL time.Duration, statsdAddr string, statsd
 		tracker.statsdTicker = time.NewTicker(time.Minute * 1)
 		go func() {
 			for range tracker.statsdTicker.C {
-				// getting the current bucket ID triggers an implicit flush, if needed
-				tracker.bucketMutex.Lock()
-				tracker.flushReport()
-				tracker.bucketMutex.Unlock()
+				tracker.FlushReport()
 			}
 		}()
 	}
 
-	tracker.buckets = make(map[string]*time.Timer)
+	tracker.sessions = make(map[string]*time.Timer)
 
 	return tracker, nil
 }
 
-func (tracker *Tracker) flushReport() {
+func (tracker *Tracker) FlushReport() {
 	count := tracker.GetCount()
 	log.Printf("Tracking summary for %v sessions: %v\n", tracker.Name, count)
 	if tracker.statsdClient != nil {
@@ -65,35 +61,35 @@ func (tracker *Tracker) Debugf(msg string, args ...interface{}) {
 }
 
 func (tracker *Tracker) Contains(sessionID string) bool {
-	tracker.bucketMutex.Lock()
-	_, ok := tracker.buckets[sessionID]
-	tracker.bucketMutex.Unlock()
+	tracker.sessionMutex.Lock()
+	_, ok := tracker.sessions[sessionID]
+	tracker.sessionMutex.Unlock()
 	return ok
 }
 
 func (tracker *Tracker) Touch(sessionID string) {
-	tracker.bucketMutex.Lock()
+	tracker.sessionMutex.Lock()
 
-	t, ok := tracker.buckets[sessionID]
+	t, ok := tracker.sessions[sessionID]
 	if ok {
 		t.Reset(tracker.SessionTTL)
 	} else {
 		t := time.NewTimer(tracker.SessionTTL)
-		tracker.buckets[sessionID] = t
+		tracker.sessions[sessionID] = t
 		start := time.Now()
 		atomic.AddInt64(&tracker.sessionCount, 1)
 		go func() {
 			<-t.C
 			atomic.AddInt64(&tracker.sessionCount, -1)
 			tracker.Debugf("Session %v timed out after %v\n", sessionID, time.Now().Sub(start))
-			tracker.bucketMutex.Lock()
-			delete(tracker.buckets, sessionID)
-			tracker.bucketMutex.Unlock()
+			tracker.sessionMutex.Lock()
+			delete(tracker.sessions, sessionID)
+			tracker.sessionMutex.Unlock()
 		}()
 	}
 
-	tracker.Debugf("Track %v sid:%v count:%v\n", tracker.Name, sessionID, len(tracker.buckets))
-	tracker.bucketMutex.Unlock()
+	tracker.Debugf("Track %v sid:%v count:%v\n", tracker.Name, sessionID, len(tracker.sessions))
+	tracker.sessionMutex.Unlock()
 }
 
 func (tracker *Tracker) GetCount() int64 {
